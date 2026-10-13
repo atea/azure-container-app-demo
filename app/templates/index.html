@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure Table Storage Explorer - Azure Container Apps</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        azure: {
+                            50: '#f0f6ff',
+                            100: '#e0edfe',
+                            500: '#0078d4',
+                            600: '#0062ab',
+                            700: '#004c85',
+                            800: '#003964',
+                            900: '#002644',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Alpine.js -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="h-full font-sans text-slate-800 antialiased" x-data="tableApp()" x-init="initApp()" x-cloak>
+    <div class="min-h-full flex flex-col">
+        
+        <!-- Top Navigation Bar -->
+        <header class="bg-slate-900 border-b border-slate-800 text-white shadow-sm sticky top-0 z-30">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <!-- Brand / App Info -->
+                    <div class="flex items-center space-x-3">
+                        <div class="w-9 h-9 rounded-lg bg-azure-500 flex items-center justify-center text-white shadow-md shadow-azure-500/30">
+                            <i data-lucide="database" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <h1 class="font-extrabold text-xl tracking-tight leading-none text-white">Azure Table Storage Explorer</h1>
+                                <span class="text-[10px] bg-slate-800 text-slate-200 font-semibold px-2 py-0.5 rounded border border-slate-700 uppercase tracking-wide">ACA Demo</span>
+                            </div>
+                            <p class="text-[11px] text-slate-300 font-normal mt-1 leading-none">Microservice CRUD Web GUI</p>
+                        </div>
+                    </div>
+
+                    <!-- Connection Status & Action Buttons -->
+                    <div class="flex items-center space-x-3">
+                        <!-- Status Badge -->
+                        <div @click="showConfigModal = true" class="cursor-pointer group flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium transition-colors"
+                             :class="{
+                                 'bg-emerald-950/80 text-emerald-400 border border-emerald-800 hover:bg-emerald-900/80': status.connected && status.mode !== 'in_memory',
+                                 'bg-amber-950/80 text-amber-400 border border-amber-800 hover:bg-amber-900/80': status.mode === 'in_memory',
+                                 'bg-rose-950/80 text-rose-400 border border-rose-800 hover:bg-rose-900/80': !status.connected
+                             }">
+                            <span class="w-2 h-2 rounded-full animate-pulse"
+                                  :class="{
+                                      'bg-emerald-400': status.connected && status.mode !== 'in_memory',
+                                      'bg-amber-400': status.mode === 'in_memory',
+                                      'bg-rose-400': !status.connected
+                                  }"></span>
+                            <span x-text="status.account_display || 'Checking connection...'"></span>
+                            <i data-lucide="settings" class="w-3.5 h-3.5 ml-1 opacity-70 group-hover:opacity-100"></i>
+                        </div>
+
+                        <!-- Open API / Swagger Docs Link -->
+                        <a href="/docs" target="_blank" title="Interactive OpenAPI Docs"
+                           class="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 transition">
+                            <i data-lucide="book-open" class="w-3.5 h-3.5"></i>
+                            <span>Swagger API</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            
+            <!-- Table Selection & Quick Actions Bar -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+                    
+                    <!-- Table Selector -->
+                    <div class="flex items-center space-x-3">
+                        <label class="text-sm font-semibold text-slate-700 flex items-center space-x-1.5">
+                            <i data-lucide="table" class="w-4 h-4 text-azure-600"></i>
+                            <span>Current Table:</span>
+                        </label>
+                        <div class="relative min-w-[200px]">
+                            <select x-model="selectedTable" @change="loadEntities()"
+                                    class="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-azure-500 focus:border-azure-500">
+                                <template x-for="tbl in tables" :key="tbl">
+                                    <option :value="tbl" x-text="tbl" :selected="tbl === selectedTable"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Add Table Button -->
+                        <button @click="showNewTableModal = true"
+                                class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+                                title="Create new table">
+                            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                            <span>New Table</span>
+                        </button>
+
+                        <!-- Delete Table Button -->
+                        <button @click="confirmDeleteTable()"
+                                x-show="selectedTable"
+                                class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                                title="Delete active table">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            <span>Delete Table</span>
+                        </button>
+                    </div>
+
+                    <!-- Right Side Actions: Seed Data & Create Entity -->
+                    <div class="flex items-center space-x-2">
+                        <!-- Seed Sample Data -->
+                        <button @click="seedData()"
+                                :disabled="isLoading"
+                                class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition border border-slate-200"
+                                title="Populate table with sample sensor and product entities">
+                            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-500"></i>
+                            <span>Seed Sample Data</span>
+                        </button>
+
+                        <!-- Add Entity Button -->
+                        <button @click="openEntityModal('create')"
+                                :disabled="!selectedTable"
+                                class="inline-flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold text-white bg-azure-500 hover:bg-azure-600 rounded-lg shadow-sm transition disabled:opacity-50">
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                            <span>Insert Entity</span>
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Query & Filter Toolbar -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+                <form @submit.prevent="loadEntities()" class="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+                    
+                    <!-- Partition Key Filter -->
+                    <div class="w-full md:w-1/4">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">PartitionKey</label>
+                        <div class="relative">
+                            <input type="text" x-model="filters.partitionKey" placeholder="e.g. Devices or Products"
+                                   class="w-full text-sm bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-azure-500 focus:outline-none">
+                            <button type="button" x-show="filters.partitionKey" @click="filters.partitionKey = ''; loadEntities()" 
+                                    class="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600">
+                                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Custom OData Filter Query -->
+                    <div class="w-full md:flex-1">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">OData Filter Expression</label>
+                        <div class="relative">
+                            <input type="text" x-model="filters.odataFilter" placeholder="e.g. Price gt 50 and IsActive eq true"
+                                   class="w-full text-sm bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 font-mono text-xs focus:ring-2 focus:ring-azure-500 focus:outline-none">
+                            <button type="button" x-show="filters.odataFilter" @click="filters.odataFilter = ''; loadEntities()" 
+                                    class="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600">
+                                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Max Results Limit -->
+                    <div class="w-full md:w-32">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Limit</label>
+                        <select x-model="filters.limit" @change="loadEntities()"
+                                class="w-full text-sm bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-azure-500 focus:outline-none">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="250">250</option>
+                        </select>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex items-end space-x-2 pt-2 md:pt-5">
+                        <button type="submit"
+                                class="inline-flex items-center space-x-1.5 px-4 py-2 text-sm font-medium text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition shadow-sm">
+                            <i data-lucide="search" class="w-4 h-4"></i>
+                            <span>Query</span>
+                        </button>
+                        <button type="button" @click="resetFilters()"
+                                class="inline-flex items-center space-x-1.5 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition border border-slate-300">
+                            <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                            <span>Reset</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Entities Table Card -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                
+                <!-- Table Header & Bulk Selection Controls -->
+                <div class="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <h2 class="text-base font-semibold text-slate-800">
+                            Entities in <span class="text-azure-600" x-text="selectedTable || 'None'"></span>
+                        </h2>
+                        <span class="text-xs bg-slate-200 text-slate-700 px-2.5 py-0.5 rounded-full font-medium"
+                              x-text="entities.length + ' entities'"></span>
+                    </div>
+
+                    <!-- Bulk Actions -->
+                    <div class="flex items-center space-x-2" x-show="selectedRows.length > 0">
+                        <span class="text-xs font-medium text-slate-500" x-text="selectedRows.length + ' selected'"></span>
+                        <button @click="batchDeleteSelected()"
+                                class="inline-flex items-center space-x-1 px-3 py-1.5 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition border border-rose-200">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            <span>Delete Selected</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Loading State -->
+                <div x-show="isLoading" class="p-12 text-center text-slate-500">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-2 border-slate-200 border-t-azure-600 mb-3"></div>
+                    <p class="text-sm font-medium">Loading Azure Table data...</p>
+                </div>
+
+                <!-- Empty State -->
+                <div x-show="!isLoading && entities.length === 0" class="p-16 text-center">
+                    <div class="w-12 h-12 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <i data-lucide="inbox" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-sm font-semibold text-slate-800 mb-1">No entities found</h3>
+                    <p class="text-xs text-slate-500 max-w-sm mx-auto mb-4">
+                        This table has no records or no entities match your query filter.
+                    </p>
+                    <div class="flex items-center justify-center space-x-2">
+                        <button @click="seedData()" class="px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition">
+                            Seed Sample Records
+                        </button>
+                        <button @click="openEntityModal('create')" class="px-3 py-2 text-xs font-medium text-white bg-azure-500 hover:bg-azure-600 rounded-lg transition">
+                            Insert First Entity
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Data Table -->
+                <div x-show="!isLoading && entities.length > 0" class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-slate-200 text-left text-sm">
+                        <thead class="bg-slate-50/75 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                            <tr>
+                                <th scope="col" class="w-10 px-4 py-3">
+                                    <input type="checkbox" @change="toggleSelectAll($event)" :checked="isAllSelected()"
+                                           class="rounded border-slate-300 text-azure-600 focus:ring-azure-500">
+                                </th>
+                                <th scope="col" class="px-4 py-3">PartitionKey</th>
+                                <th scope="col" class="px-4 py-3">RowKey</th>
+                                <!-- Dynamic Property Columns -->
+                                <template x-for="col in dynamicColumns" :key="col">
+                                    <th scope="col" class="px-4 py-3" x-text="col"></th>
+                                </template>
+                                <th scope="col" class="px-4 py-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-200 bg-white">
+                            <template x-for="(entity, idx) in entities" :key="entity.PartitionKey + '_' + entity.RowKey">
+                                <tr class="hover:bg-slate-50/80 transition-colors">
+                                    <!-- Selection Checkbox -->
+                                    <td class="px-4 py-3">
+                                        <input type="checkbox" :value="entity.PartitionKey + '::' + entity.RowKey"
+                                               x-model="selectedRows"
+                                               class="rounded border-slate-300 text-azure-600 focus:ring-azure-500">
+                                    </td>
+                                    <!-- PartitionKey -->
+                                    <td class="px-4 py-3 font-semibold text-slate-900 whitespace-nowrap" x-text="entity.PartitionKey"></td>
+                                    <!-- RowKey -->
+                                    <td class="px-4 py-3 font-mono text-xs text-azure-700 whitespace-nowrap" x-text="entity.RowKey"></td>
+                                    <!-- Dynamic Columns -->
+                                    <template x-for="col in dynamicColumns" :key="col">
+                                        <td class="px-4 py-3 text-slate-600 max-w-xs truncate" :title="formatValue(entity[col])">
+                                            <template x-if="typeof entity[col] === 'boolean'">
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold"
+                                                      :class="entity[col] ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-200 text-slate-900'"
+                                                      x-text="entity[col] ? 'true' : 'false'"></span>
+                                            </template>
+                                            <template x-if="typeof entity[col] !== 'boolean'">
+                                                <span x-text="formatValue(entity[col])"></span>
+                                            </template>
+                                        </td>
+                                    </template>
+                                    <!-- Row Action Buttons -->
+                                    <td class="px-4 py-3 text-right whitespace-nowrap space-x-1">
+                                        <button @click="viewEntity(entity)" title="View Details"
+                                                class="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </button>
+                                        <button @click="openEntityModal('edit', entity)" title="Edit Entity"
+                                                class="p-1 text-azure-600 hover:text-azure-700 rounded hover:bg-azure-50">
+                                            <i data-lucide="edit-3" class="w-4 h-4"></i>
+                                        </button>
+                                        <button @click="deleteSingleEntity(entity.PartitionKey, entity.RowKey)" title="Delete Entity"
+                                                class="p-1 text-rose-500 hover:text-rose-700 rounded hover:bg-rose-50">
+                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+
+        </main>
+
+        <!-- Footer -->
+        <footer class="bg-white border-t border-slate-200 mt-auto py-4 text-center text-xs text-slate-400">
+            <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+                <span>Azure Container Apps &bull; Azure Table Storage CRUD Web App</span>
+                <span class="flex items-center space-x-2">
+                    <span>Probes:</span>
+                    <a href="/healthz" target="_blank" class="text-azure-600 hover:underline">/healthz</a>
+                    <span class="text-slate-300">&bull;</span>
+                    <a href="/ready" target="_blank" class="text-azure-600 hover:underline">/ready</a>
+                </span>
+            </div>
+        </footer>
+
+        <!-- MODAL: Add / Edit Entity -->
+        <div x-show="showEntityModal" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity" @click="showEntityModal = false"></div>
+                <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+                <div class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full border border-slate-200">
+                    <div class="bg-slate-900 px-6 py-4 flex items-center justify-between text-white">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="file-edit" class="w-5 h-5 text-azure-400"></i>
+                            <h3 class="text-base font-semibold" x-text="entityModalMode === 'create' ? 'Insert New Entity' : 'Edit Entity'"></h3>
+                        </div>
+                        <!-- Mode Tabs (Visual / Raw JSON) -->
+                        <div class="flex items-center bg-slate-800 p-0.5 rounded-lg border border-slate-700 text-xs">
+                            <button type="button" @click="entityInputTab = 'visual'"
+                                    :class="entityInputTab === 'visual' ? 'bg-azure-500 text-white font-medium' : 'text-slate-400 hover:text-white'"
+                                    class="px-2.5 py-1 rounded transition">Key-Value Form</button>
+                            <button type="button" @click="syncToRawJson(); entityInputTab = 'json'"
+                                    :class="entityInputTab === 'json' ? 'bg-azure-500 text-white font-medium' : 'text-slate-400 hover:text-white'"
+                                    class="px-2.5 py-1 rounded transition">Raw JSON</button>
+                        </div>
+                    </div>
+
+                    <div class="p-6">
+                        <!-- Visual Builder Tab -->
+                        <div x-show="entityInputTab === 'visual'" class="space-y-4">
+                            <!-- Required Primary Keys -->
+                            <div class="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">PartitionKey *</label>
+                                    <input type="text" x-model="activeEntity.PartitionKey" :disabled="entityModalMode === 'edit'"
+                                           placeholder="e.g. Products or CategoryA"
+                                           class="w-full text-sm bg-white border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-azure-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">RowKey *</label>
+                                    <input type="text" x-model="activeEntity.RowKey" :disabled="entityModalMode === 'edit'"
+                                           placeholder="e.g. PRD-001 or ID123"
+                                           class="w-full text-sm bg-white border border-slate-300 rounded-lg px-3 py-2 font-mono text-xs focus:ring-2 focus:ring-azure-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500">
+                                </div>
+                            </div>
+
+                            <!-- Custom Dynamic Attributes -->
+                            <div>
+                                <div class="flex items-center justify-between mb-2">
+                                    <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Custom Attributes</label>
+                                    <button type="button" @click="addEntityField()"
+                                            class="inline-flex items-center space-x-1 text-xs font-medium text-azure-600 hover:text-azure-700">
+                                        <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                                        <span>Add Property</span>
+                                    </button>
+                                </div>
+
+                                <div class="space-y-2 max-h-60 overflow-y-auto pr-1">
+                                    <template x-for="(attr, idx) in activeEntityAttributes" :key="idx">
+                                        <div class="flex items-center space-x-2">
+                                            <!-- Property Name -->
+                                            <input type="text" x-model="attr.key" placeholder="Property Name"
+                                                   class="w-1/3 text-xs bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-azure-500">
+                                            <!-- Type Selector -->
+                                            <select x-model="attr.type"
+                                                    class="w-1/4 text-xs bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-azure-500">
+                                                <option value="string">String</option>
+                                                <option value="number">Number</option>
+                                                <option value="boolean">Boolean</option>
+                                            </select>
+                                            <!-- Value Input -->
+                                            <template x-if="attr.type === 'boolean'">
+                                                <select x-model="attr.value" class="flex-1 text-xs bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5">
+                                                    <option value="true">true</option>
+                                                    <option value="false">false</option>
+                                                </select>
+                                            </template>
+                                            <template x-if="attr.type !== 'boolean'">
+                                                <input type="text" x-model="attr.value" placeholder="Value"
+                                                       class="flex-1 text-xs bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-azure-500">
+                                            </template>
+                                            <!-- Remove Field -->
+                                            <button type="button" @click="removeEntityField(idx)" class="p-1 text-slate-400 hover:text-rose-500">
+                                                <i data-lucide="minus-circle" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Raw JSON Tab -->
+                        <div x-show="entityInputTab === 'json'">
+                            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Entity JSON Payload</label>
+                            <textarea x-model="rawEntityJson" rows="10"
+                                      class="w-full font-mono text-xs bg-slate-900 text-slate-100 p-3 rounded-xl border border-slate-700 focus:outline-none focus:ring-2 focus:ring-azure-500"></textarea>
+                            <p class="text-xs text-slate-400 mt-1">Make sure PartitionKey and RowKey properties exist.</p>
+                        </div>
+                    </div>
+
+                    <!-- Modal Actions -->
+                    <div class="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-end space-x-2">
+                        <button type="button" @click="showEntityModal = false"
+                                class="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-200 rounded-lg transition">
+                            Cancel
+                        </button>
+                        <button type="button" @click="saveEntity()"
+                                class="px-4 py-2 text-xs font-semibold text-white bg-azure-500 hover:bg-azure-600 rounded-lg shadow-sm transition">
+                            <span x-text="entityModalMode === 'create' ? 'Save Entity' : 'Update Entity'"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: View Entity Details -->
+        <div x-show="showDetailModal" class="fixed inset-0 z-50 overflow-y-auto">
+            <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
+                <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity" @click="showDetailModal = false"></div>
+                <div class="inline-block bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:max-w-xl sm:w-full border border-slate-200 z-10">
+                    <div class="bg-slate-900 px-6 py-4 flex items-center justify-between text-white">
+                        <h3 class="text-base font-semibold flex items-center space-x-2">
+                            <i data-lucide="file-text" class="w-5 h-5 text-azure-400"></i>
+                            <span>Entity Inspector</span>
+                        </h3>
+                        <button @click="showDetailModal = false" class="text-slate-400 hover:text-white">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                    <div class="p-6">
+                        <div class="mb-4 bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between text-xs font-mono">
+                            <div><span class="text-slate-400">PartitionKey:</span> <span class="font-bold text-slate-800" x-text="detailEntity.PartitionKey"></span></div>
+                            <div><span class="text-slate-400">RowKey:</span> <span class="font-bold text-azure-600" x-text="detailEntity.RowKey"></span></div>
+                        </div>
+
+                        <div class="overflow-hidden border border-slate-200 rounded-lg mb-4">
+                            <table class="min-w-full divide-y divide-slate-200 text-xs">
+                                <thead class="bg-slate-100 text-slate-600">
+                                    <tr>
+                                        <th class="px-3 py-2 text-left font-semibold">Property</th>
+                                        <th class="px-3 py-2 text-left font-semibold">Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-200 bg-white font-mono">
+                                    <template x-for="(val, key) in detailEntity" :key="key">
+                                        <tr>
+                                            <td class="px-3 py-2 text-slate-600 font-semibold" x-text="key"></td>
+                                            <td class="px-3 py-2 text-slate-800 break-all" x-text="typeof val === 'object' ? JSON.stringify(val) : val"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Raw JSON</label>
+                        <pre class="bg-slate-950 text-slate-200 p-3 rounded-xl text-xs overflow-x-auto max-h-48" x-text="JSON.stringify(detailEntity, null, 2)"></pre>
+                    </div>
+                    <div class="bg-slate-50 px-6 py-3 border-t border-slate-200 flex justify-end">
+                        <button @click="showDetailModal = false" class="px-4 py-1.5 text-xs font-medium text-slate-700 bg-slate-200 hover:bg-slate-300 rounded-lg">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: New Table -->
+        <div x-show="showNewTableModal" class="fixed inset-0 z-50 overflow-y-auto">
+            <div class="flex items-center justify-center min-h-screen px-4 text-center">
+                <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" @click="showNewTableModal = false"></div>
+                <div class="inline-block bg-white rounded-2xl text-left overflow-hidden shadow-xl sm:max-w-md sm:w-full border border-slate-200 z-10 p-6">
+                    <h3 class="text-base font-semibold text-slate-900 mb-2 flex items-center space-x-2">
+                        <i data-lucide="plus-square" class="w-5 h-5 text-azure-600"></i>
+                        <span>Create Azure Storage Table</span>
+                    </h3>
+                    <p class="text-xs text-slate-500 mb-4">Table names must be alphanumeric and between 3 and 63 characters.</p>
+                    <input type="text" x-model="newTableName" placeholder="e.g. Orders or SensorMetrics"
+                           class="w-full text-sm bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 mb-4 focus:ring-2 focus:ring-azure-500 focus:outline-none">
+                    <div class="flex justify-end space-x-2">
+                        <button type="button" @click="showNewTableModal = false" class="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg">Cancel</button>
+                        <button type="button" @click="createTable()" class="px-4 py-2 text-xs font-semibold text-white bg-azure-500 hover:bg-azure-600 rounded-lg">Create Table</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: Storage & Container App Connection Settings -->
+        <div x-show="showConfigModal" class="fixed inset-0 z-50 overflow-y-auto">
+            <div class="flex items-center justify-center min-h-screen px-4 text-center">
+                <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" @click="showConfigModal = false"></div>
+                <div class="inline-block bg-white rounded-2xl text-left overflow-hidden shadow-xl sm:max-w-lg sm:w-full border border-slate-200 z-10">
+                    <div class="bg-slate-900 px-6 py-4 flex items-center justify-between text-white">
+                        <h3 class="text-base font-semibold flex items-center space-x-2">
+                            <i data-lucide="settings" class="w-5 h-5 text-azure-400"></i>
+                            <span>Azure Storage Settings</span>
+                        </h3>
+                        <button @click="showConfigModal = false" class="text-slate-400 hover:text-white">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+                            <div><span class="text-slate-500">Current Mode:</span> <span class="font-bold uppercase text-slate-800" x-text="status.mode"></span></div>
+                            <div><span class="text-slate-500">Status:</span> <span class="font-semibold" :class="status.connected ? 'text-emerald-600' : 'text-rose-600'" x-text="status.message"></span></div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                                Connection String
+                            </label>
+                            <textarea x-model="configInput.connectionString" rows="3" placeholder="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
+                                      class="w-full text-xs font-mono bg-slate-50 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-azure-500 focus:outline-none"></textarea>
+                            <p class="text-xs text-slate-400 mt-1">Or use Azurite emulator: <code>UseDevelopmentStorage=true</code></p>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                                Storage Account Name (Managed Identity)
+                            </label>
+                            <input type="text" x-model="configInput.accountName" placeholder="mystorageaccount"
+                                   class="w-full text-xs font-mono bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-azure-500 focus:outline-none">
+                            <p class="text-xs text-slate-400 mt-1">When deployed to Azure Container Apps with User/System Managed Identity.</p>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 px-6 py-3 border-t border-slate-200 flex justify-end space-x-2">
+                        <button type="button" @click="showConfigModal = false" class="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-200 rounded-lg">Cancel</button>
+                        <button type="button" @click="applyConfig()" class="px-4 py-2 text-xs font-semibold text-white bg-azure-500 hover:bg-azure-600 rounded-lg">Apply & Reconnect</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notifications Container -->
+        <div class="fixed bottom-4 right-4 z-50 flex flex-col space-y-2 pointer-events-none">
+            <template x-for="toast in toasts" :key="toast.id">
+                <div class="pointer-events-auto flex items-center space-x-2 px-4 py-2.5 rounded-xl shadow-lg border text-xs font-medium transition-all"
+                     :class="{
+                         'bg-slate-900 text-white border-slate-800': toast.type === 'info',
+                         'bg-emerald-900 text-emerald-100 border-emerald-700': toast.type === 'success',
+                         'bg-rose-900 text-rose-100 border-rose-700': toast.type === 'error',
+                         'bg-amber-900 text-amber-100 border-amber-700': toast.type === 'warning'
+                     }">
+                    <span x-text="toast.message"></span>
+                </div>
+            </template>
+        </div>
+
+    </div>
+
+    <!-- Application Script -->
+    <script src="/static/js/app.js"></script>
+    <script>
+        // Refresh icons after Alpine mounts
+        document.addEventListener('alpine:initialized', () => {
+            lucide.createIcons();
+        });
+    </script>
+</body>
+</html>
