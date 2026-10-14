@@ -16,6 +16,13 @@ param tableName string = 'demotable'
 @description('Container image URL to deploy')
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
+@description('Name of the Azure Container Registry containing the image')
+param acrName string
+
+resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
+  name: acrName
+}
+
 // 1. Log Analytics Workspace
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: 'log-${appName}-${uniqueSuffix}'
@@ -76,8 +83,9 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
   location: location
 }
 
-// 5. RBAC: Storage Table Data Contributor (0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3)
-resource roleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+
+// 6. RBAC: Storage Table Data Contributor (0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3)
+resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storageAccount.id, managedIdentity.id, 'StorageTableDataContributor')
   scope: storageAccount
   properties: {
@@ -87,7 +95,7 @@ resource roleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-// 6. Azure Container App
+// 7. Azure Container App
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-${appName}-${uniqueSuffix}'
   location: location
@@ -100,6 +108,12 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   properties: {
     managedEnvironmentId: containerAppEnv.id
     configuration: {
+      registries: [
+        {
+          server: acr.properties.loginServer
+          identity: managedIdentity.id
+        }
+      ]
       ingress: {
         external: true
         targetPort: 8000

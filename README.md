@@ -156,14 +156,14 @@ az group create --name "$RG" --location "$LOCATION"
 
 # 3. Build & push image to Azure Container Registry
 ACR="acr${APP}demo"
-az acr create --resource-group "$RG" --name "$ACR" --sku Basic --admin-enabled true
+az acr create --resource-group "$RG" --name "$ACR" --sku Basic
 az acr build --registry "$ACR" --image "$APP:latest" .
 
 # 4. Deploy Bicep template
 az deployment group create \
   --resource-group "$RG" \
   --template-file infra/main.bicep \
-  --parameters appName="$APP" containerImage="$ACR.azurecr.io/$APP:latest"
+  --parameters appName="$APP" acrName="$ACR" containerImage="$ACR.azurecr.io/$APP:latest"
 ```
 
 ---
